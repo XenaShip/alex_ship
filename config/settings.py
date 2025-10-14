@@ -18,13 +18,14 @@ load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = ''
+SECRET_KEY = os.getenv('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -35,6 +36,7 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
+    "jazzmin",
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -43,9 +45,12 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'eflab'
 ]
+STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -54,6 +59,32 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+JAZZMIN_SETTINGS = {
+    "site_title": "EF Lab — админка",
+    "site_header": "EF Lab",
+    "site_brand": "EF Lab Admin",
+    "welcome_sign": "Добро пожаловать!",
+    "hide_apps": [],
+    "show_sidebar": True,
+    "navigation_expanded": True,
+    "icons": {
+        "eflab.Survey": "fas fa-list-check",
+        "eflab.Question": "fas fa-circle-question",
+        "eflab.Mark": "fas fa-check-double",
+        "eflab.Client": "fas fa-user",
+        "eflab.Answer": "fas fa-comment",
+    },
+    "order_with_respect_to": [
+        "eflab.Survey",
+        "eflab.Question",
+        "eflab.Mark",
+        "eflab.Client",
+        "eflab.Answer",
+    ],
+    "show_ui_builder": True,  # кнопка "кисточка" для подбора цветов прямо в админке
+}
+
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 ROOT_URLCONF = 'config.urls'
 
 TEMPLATES = [

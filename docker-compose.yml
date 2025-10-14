@@ -1,0 +1,52 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      # Берём из твоего .env
+      POSTGRES_DB: ${NAME}
+      POSTGRES_USER: ${USER}
+      POSTGRES_PASSWORD: ${PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${USER} -d ${NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    # entrypoint прогонит миграции и collectstatic
+    entrypoint: ["/app/entrypoint.sh"]
+    # Для мгновенной работы админки и статики используем runserver
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+    # ⚠️ Когда будешь готов к продакшену, замени на gunicorn (и добавь nginx):
+    # command: ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "60"]
+    volumes:
+      - static:/app/static
+      - media:/app/media
+    ports:
+      - "8000:8000"
+
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    # если твой файл бота называется иначе — замени
+    command: ["python", "bot.py"]
+
+volumes:
+  pgdata:
+  static:
+  media:
