@@ -59,7 +59,6 @@ class SurveyAdmin(admin.ModelAdmin):
     fieldsets = (
         ("Основное", {"fields": ("name", "slug", "active")}),
         ("Описание", {"fields": ("description", "hello_text")}),
-        ("Ссылка", {"fields": ("link",)}),
     )
     actions = ("activate", "deactivate")
 
