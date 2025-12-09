@@ -18,7 +18,7 @@ from asgiref.sync import sync_to_async
 
 # ---- Модели (у тебя app: eflab) ----
 from eflab.models import Survey, Question, Client, Answer, Mark  # поля см. твои модели :contentReference[oaicite:1]{index=1}
-
+from eflab.models import SurveyGift
 # ---------------- Aiogram 3.7+ ----------------
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
@@ -53,6 +53,7 @@ selections: dict[int, dict[int, set[str]]] = defaultdict(lambda: defaultdict(set
 # =======================================================
 # ==============   СИНХРОННЫЕ ORM ФУНКЦИИ   =============
 # =======================================================
+
 def _get_or_create_client_sync(tg_id: int, username: str, full_name: str) -> Client:
     """
     Создаём/находим клиента по tg_id (unique); обновляем acc_tg при изменении username.
@@ -137,6 +138,8 @@ def _save_answer_sync(client: Client, question: Question, value: str) -> Answer:
             client_id=client,
         )
 
+def _get_gift_sync(survey: Survey):
+    return SurveyGift.objects.filter(survey=survey).first()
 
 def _delete_answers_for_client_survey_sync(client: Client, survey: Survey) -> int:
     """Удалить все ответы пользователя по конкретному опросу (для ретейка)."""
@@ -144,6 +147,7 @@ def _delete_answers_for_client_survey_sync(client: Client, survey: Survey) -> in
     count = qs.count()
     qs.delete()
     return count
+
 
 
 # ===== async-обёртки над ORM =====
@@ -156,6 +160,8 @@ a_get_question = sync_to_async(_get_question_by_id_sync, thread_sensitive=True)
 a_get_marks = sync_to_async(_get_marks_for_question_sync, thread_sensitive=True)
 a_save_answer = sync_to_async(_save_answer_sync, thread_sensitive=True)
 a_delete_answers = sync_to_async(_delete_answers_for_client_survey_sync, thread_sensitive=True)
+a_get_gift = sync_to_async(_get_gift_sync, thread_sensitive=True)
+
 
 # =======================================================
 # ===================  КНОПКИ / UI  =====================
@@ -205,69 +211,113 @@ def kb_in_survey(slug: str, show_menu: bool) -> InlineKeyboardMarkup:
 # ================  ОТПРАВКА ВОПРОСА  ===================
 # =======================================================
 async def send_question(msg: Message, survey: Survey, q: Question):
-    """
-    Шлём текст вопроса.
-    Если к вопросу прикреплён файл (Question.file), шлём его подходящим методом
-    согласно Question.kind_file: 'photo' | 'video' | 'audio' | 'document'.  :contentReference[oaicite:7]{index=7}
-    """
     header = f"<b>Вопрос {q.numb}</b>\n{q.que_text or ''}".strip()
 
-    # 1) медиа из вопроса
-    sent_media = False
-    if getattr(q, "file", None):
+    sent = False
+
+    if q.file:
         try:
-            # Пытаемся отправить локальный файл; если нет локального пути — используем URL
-            file_input = None
-            if hasattr(q, "file") and hasattr(q.file, "path") and os.path.exists(q.file.path):
-                file_input = FSInputFile(q.file.path)
-            else:
-                file_input = q.file.url  # должен быть публичным
+            # Всегда используем путь до файла внутри контейнера
+            if hasattr(q.file, "path") and os.path.exists(q.file.path):
+                f = FSInputFile(q.file.path)
 
-            kind = (q.kind_file or "").lower()
-            if kind == "photo":
-                await msg.answer_photo(file_input, caption=header)
-            elif kind == "video":
-                await msg.answer_video(file_input, caption=header)
-            elif kind == "audio":
-                await msg.answer_audio(file_input, caption=header)
-            else:
-                await msg.answer_document(file_input, caption=header)
-            sent_media = True
-        except Exception:
-            sent_media = False
+                kind = (q.kind_file or "document").lower()
 
-    # 2) если не отправилось медиа — отправим просто текст
-    if not sent_media:
+                if kind == "photo":
+                    await msg.answer_photo(f, caption=header)
+                elif kind == "video":
+                    await msg.answer_video(f, caption=header)
+                elif kind == "audio":
+                    await msg.answer_audio(f, caption=header)
+                else:
+                    await msg.answer_document(f, caption=header)
+
+                sent = True
+            else:
+                print("Файл вопроса не найден на диске:", q.file)
+        except Exception as e:
+            print("Ошибка отправки файла вопроса:", e)
+
+    if not sent:
         await msg.answer(header)
 
-    # 3) подсказки/кнопки по типу вопроса
+    # тип вопроса — кнопки / текст
     typeq = (q.type_q or "").lower()
+
     if typeq == "yes_or_no":
         await msg.answer("Ваш ответ:", reply_markup=kb_yes_no("ans_yn", str(q.id)))
+
     elif typeq == "one_of_some":
         marks = await a_get_marks(q)
         options = [m.mark_text for m in marks] if marks else []
+
         selections[msg.from_user.id][q.id] = selections[msg.from_user.id].get(q.id, set())
+
         await msg.answer(
-            "Выберите один или несколько вариантов (ставьте/снимайте галочки), затем нажмите «Готово»:",
+            "Выберите варианты (можно несколько):",
             reply_markup=kb_multi(q.id, options, selections[msg.from_user.id][q.id])
         )
+
     else:
-        await msg.answer("Напишите ответ текстом.")
+        await msg.answer("Напишите ответ текстом:")
+
+
 
 async def ask_next_or_finish(msg: Message, client: Client, survey: Survey):
+    """
+    Отправляет следующий вопрос или подарок (если вопросы закончились).
+    """
     q = await a_next_question(client, survey)
+
+    # ---------------------------------------------------------
+    # 1. ЕСЛИ ВОПРОСОВ НЕТ → ОТПРАВЛЯЕМ ПОДАРОК + ФИНАЛЬНОЕ СООБЩЕНИЕ
+    # ---------------------------------------------------------
     if not q:
-        items = await alist_active_surveys()          # [(name, slug)]
+        gift = await a_get_gift(survey)
+
+        if gift and gift.file:
+            try:
+                # путь до файла внутри контейнера
+                if hasattr(gift.file, "path") and os.path.exists(gift.file.path):
+                    file_path = gift.file.path
+                    f = FSInputFile(file_path)
+
+                    caption = gift.caption or "Спасибо за прохождение! Вот ваш подарок 🎁"
+                    name = gift.file.name.lower()
+
+                    # Определяем тип файла
+                    if name.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
+                        await msg.answer_photo(f, caption=caption)
+                    elif name.endswith((".mp4", ".mov", ".avi", ".mkv")):
+                        await msg.answer_video(f, caption=caption)
+                    elif name.endswith((".mp3", ".aac", ".wav", ".ogg")):
+                        await msg.answer_audio(f, caption=caption)
+                    else:
+                        await msg.answer_document(f, caption=caption)
+                else:
+                    print("Файл подарка не найден в контейнере:", gift.file)
+
+            except Exception as e:
+                print("Ошибка отправки подарка:", e)
+
+        # финальное сообщение
+        items = await alist_active_surveys()
         show_menu = len(items) > 1
+
         await msg.answer(
-            f"Готово! Вы ответили на все вопросы опроса «{survey.name}».\n{await a_progress_text(client, survey)}",
+            f"Готово! Вы ответили на все вопросы опроса «{survey.name}».",
             reply_markup=kb_in_survey(survey.slug, show_menu)
         )
         return
-    await msg.answer(await a_progress_text(client, survey))
-    await send_question(msg, survey, q)
 
+    # ---------------------------------------------------------
+    # 2. ЕСЛИ ВОПРОС ЕСТЬ → ОТПРАВЛЯЕМ ПРОГРЕСС + САМ ВОПРОС
+    # ---------------------------------------------------------
+    progress = await a_progress_text(client, survey)
+    if progress:
+        await msg.answer(progress)
+
+    await send_question(msg, survey, q)
 
 # =======================================================
 # =====================  ХЕНДЛЕРЫ  ======================

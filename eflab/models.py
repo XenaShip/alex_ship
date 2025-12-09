@@ -51,6 +51,18 @@ class Question(models.Model):
         verbose_name_plural = 'вопросы'
 
 
+class SurveyGift(models.Model):
+    survey = models.OneToOneField(Survey, on_delete=models.CASCADE, verbose_name="Опрос")
+    file = models.FileField(upload_to="gifts/", verbose_name="Подарочный файл", **NULLABLE)
+    caption = models.CharField(max_length=255, verbose_name="Текст, сопровождающий подарок", **NULLABLE)
+
+    def __str__(self):
+        return f"Подарок для {self.survey.name}"
+
+    class Meta:
+        verbose_name = "подарок"
+        verbose_name_plural = "подарки"
+
 class Client(models.Model):
     name = models.CharField(max_length=100, verbose_name='фио')
     acc_tg = models.CharField(max_length=100, verbose_name='ТГ аккаунт')

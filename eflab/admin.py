@@ -4,7 +4,7 @@ from django import forms
 from .models import Survey, Question, Mark, Client, Answer
 import csv
 from django.http import HttpResponse
-
+from .models import SurveyGift
 
 # ----- Формы с нормальными виджетами -----
 class SurveyForm(forms.ModelForm):
@@ -158,3 +158,15 @@ class AnswerAdmin(admin.ModelAdmin):
         txt = (obj.ans or "").replace("\n", " ")
         return (txt[:70] + "…") if len(txt) > 70 else txt
     short_ans.short_description = "Ответ"
+
+@admin.register(SurveyGift)
+class SurveyGiftAdmin(admin.ModelAdmin):
+    list_display = ("survey", "file", "caption")
+    list_filter = ("survey",)
+    search_fields = ("survey__name", "caption")
+    readonly_fields = ()
+    fieldsets = (
+        ("Опрос", {"fields": ("survey",)}),
+        ("Подарок", {"fields": ("file", "caption")}),
+    )
+
