@@ -70,6 +70,7 @@ class Client(models.Model):
     phone = models.CharField(max_length=25, verbose_name='номер телефона')
     tg_id = models.BigIntegerField(unique=True, **NULLABLE)
 
+
     def __str__(self):
         return self.name
 

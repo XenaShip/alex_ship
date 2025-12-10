@@ -263,25 +263,38 @@ async def send_question(msg: Message, survey: Survey, q: Question):
 
 
 
-async def ask_next_or_finish(msg: Message, client: Client, survey: Survey):
+async def ask_next_or_finish(msg: Message, client: Client, survey: Survey, from_answer: bool = False):
     """
-    Показывает следующий вопрос или выдаёт подарок, если вопросов больше нет.
-    Подарок выдаётся только тогда, когда ВСЕ вопросы пройдены.
+    Показывает следующий вопрос или завершает опрос.
+    Подарок выдаётся ТОЛЬКО если вызов был после ответа (from_answer=True).
     """
 
     # 1. Ищем следующий вопрос
     q = await a_next_question(client, survey)
 
-    # ------------------------------
-    # 2. Если вопрос найден → задаём
-    # ------------------------------
+    # ---------------------------------------
+    # 2. Если вопрос найден → задаём его
+    # ---------------------------------------
     if q:
         await send_question(msg, survey, q)
         return
 
-    # ------------------------------
-    # 3. ВОПРОСОВ НЕТ → ОПРОС ЗАВЕРШЁН
-    # ------------------------------
+    # ---------------------------------------
+    # 3. ВОПРОСОВ НЕТ — ОПРОС ЗАКОНЧЕН
+    # ---------------------------------------
+
+    # Если функция вызвана НЕ после ответа — НЕ выдаём подарок
+    if not from_answer:
+        items = await alist_active_surveys()
+        show_menu = len(items) > 1
+
+        await msg.answer(
+            f"Вы уже проходили опрос «{survey.name}».",
+            reply_markup=kb_in_survey(survey.slug, show_menu)
+        )
+        return
+
+    # Если вызов после ответа — теперь можно выдавать подарок
     gift = await a_get_gift(survey)
 
     if gift and gift.file:
@@ -303,9 +316,9 @@ async def ask_next_or_finish(msg: Message, client: Client, survey: Survey):
         except Exception as e:
             print("Ошибка отправки подарка:", e)
 
-    # ------------------------------
-    # 4. Клавиатура после завершения
-    # ------------------------------
+    # ---------------------------------------
+    # 4. Выводим меню после завершения опроса
+    # ---------------------------------------
     items = await alist_active_surveys()
     show_menu = len(items) > 1
 
@@ -313,6 +326,7 @@ async def ask_next_or_finish(msg: Message, client: Client, survey: Survey):
         f"Вы закончили опрос «{survey.name}»!",
         reply_markup=kb_in_survey(survey.slug, show_menu)
     )
+
 
 
 # =======================================================
@@ -550,7 +564,8 @@ async def cb_ans_yesno(call: CallbackQuery):
     await a_save_answer(client, q, val)
 
     await call.message.answer(f"Ответ записан: <b>{val}</b>")
-    await ask_next_or_finish(call.message, client, q.survey)
+    await ask_next_or_finish(call.message, client, q.survey, from_answer=True)
+
 
 # ---------- Мультивыбор (one_of_some) ----------
 @dp.callback_query(F.data.startswith("multi:"))
@@ -569,47 +584,55 @@ async def cb_multi(call: CallbackQuery):
     user_id = call.from_user.id
     chosen = selections[user_id][qid]
 
+    # --- toggle (переключение вариантов)
     if action == "toggle":
         value = rest[0] if rest else ""
         if value in chosen:
             chosen.remove(value)
         else:
             chosen.add(value)
-        # перерисуем клавиатуру
+
         marks = await a_get_marks(q)
         options = [m.mark_text for m in marks] if marks else []
+
         try:
             await call.message.edit_reply_markup(
                 reply_markup=kb_multi(qid, options, chosen)
             )
-        except Exception:
+        except:
             await call.message.answer(
                 "Обновлён выбор:",
                 reply_markup=kb_multi(qid, options, chosen)
             )
         return
 
-    # Сохранение/пропуск
+    # --- сохраняем ответ (skip или done) ---
     tg_id = call.from_user.id
     username = call.from_user.username or ""
     full_name = call.from_user.full_name or ""
     client = await aget_or_create_client(tg_id, username, full_name)
 
+    # Пропуск
     if action == "skip":
         await a_save_answer(client, q, "")
         selections[user_id].pop(qid, None)
         await call.message.answer("Ответ записан: <i>пропуск</i>")
-        await ask_next_or_finish(call.message, client, q.survey)
+        await ask_next_or_finish(call.message, client, q.survey, from_answer=True)
         return
 
+    # Done: сохраняем выбранные значения
     if action == "done":
         value = "; ".join(sorted(chosen)) if chosen else ""
         await a_save_answer(client, q, value)
         selections[user_id].pop(qid, None)
+
         shown = value if value else "<i>пропуск</i>"
         await call.message.answer(f"Ответ записан: {shown}")
-        await ask_next_or_finish(call.message, client, q.survey)
+
+        # ПЕРЕХОД НА СЛЕДУЮЩИЙ ВОПРОС — отмечаем from_answer=True
+        await ask_next_or_finish(call.message, client, q.survey, from_answer=True)
         return
+
 
 # ---------- Свободный текст как ответ ----------
 @dp.message(F.text & ~F.text.startswith("/"))
@@ -649,7 +672,8 @@ async def msg_text_answer(message: Message):
 
     await a_save_answer(client, q, txt)
     await message.answer("Ответ записан.")
-    await ask_next_or_finish(message, client, survey)
+    await ask_next_or_finish(message, client, survey, from_answer=True)
+
 
 # ====================== RUN ======================
 async def main():
