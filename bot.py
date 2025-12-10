@@ -265,59 +265,55 @@ async def send_question(msg: Message, survey: Survey, q: Question):
 
 async def ask_next_or_finish(msg: Message, client: Client, survey: Survey):
     """
-    Отправляет следующий вопрос или подарок (если вопросы закончились).
+    Показывает следующий вопрос или выдаёт подарок, если вопросов больше нет.
+    Подарок выдаётся только тогда, когда ВСЕ вопросы пройдены.
     """
+
+    # 1. Ищем следующий вопрос
     q = await a_next_question(client, survey)
 
-    # ---------------------------------------------------------
-    # 1. ЕСЛИ ВОПРОСОВ НЕТ → ОТПРАВЛЯЕМ ПОДАРОК + ФИНАЛЬНОЕ СООБЩЕНИЕ
-    # ---------------------------------------------------------
-    if not q:
-        gift = await a_get_gift(survey)
-
-        if gift and gift.file:
-            try:
-                # путь до файла внутри контейнера
-                if hasattr(gift.file, "path") and os.path.exists(gift.file.path):
-                    file_path = gift.file.path
-                    f = FSInputFile(file_path)
-
-                    caption = gift.caption or "Спасибо за прохождение! Вот ваш подарок 🎁"
-                    name = gift.file.name.lower()
-
-                    # Определяем тип файла
-                    if name.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
-                        await msg.answer_photo(f, caption=caption)
-                    elif name.endswith((".mp4", ".mov", ".avi", ".mkv")):
-                        await msg.answer_video(f, caption=caption)
-                    elif name.endswith((".mp3", ".aac", ".wav", ".ogg")):
-                        await msg.answer_audio(f, caption=caption)
-                    else:
-                        await msg.answer_document(f, caption=caption)
-                else:
-                    print("Файл подарка не найден в контейнере:", gift.file)
-
-            except Exception as e:
-                print("Ошибка отправки подарка:", e)
-
-        # финальное сообщение
-        items = await alist_active_surveys()
-        show_menu = len(items) > 1
-
-        await msg.answer(
-            f"Готово! Вы ответили на все вопросы опроса «{survey.name}».",
-            reply_markup=kb_in_survey(survey.slug, show_menu)
-        )
+    # ------------------------------
+    # 2. Если вопрос найден → задаём
+    # ------------------------------
+    if q:
+        await send_question(msg, survey, q)
         return
 
-    # ---------------------------------------------------------
-    # 2. ЕСЛИ ВОПРОС ЕСТЬ → ОТПРАВЛЯЕМ ПРОГРЕСС + САМ ВОПРОС
-    # ---------------------------------------------------------
-    progress = await a_progress_text(client, survey)
-    if progress:
-        await msg.answer(progress)
+    # ------------------------------
+    # 3. ВОПРОСОВ НЕТ → ОПРОС ЗАВЕРШЁН
+    # ------------------------------
+    gift = await a_get_gift(survey)
 
-    await send_question(msg, survey, q)
+    if gift and gift.file:
+        try:
+            if hasattr(gift.file, "path") and os.path.exists(gift.file.path):
+                f = FSInputFile(gift.file.path)
+                caption = gift.caption or "Спасибо за прохождение! 🎁"
+
+                name = gift.file.name.lower()
+                if name.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
+                    await msg.answer_photo(f, caption=caption)
+                elif name.endswith((".mp4", ".mov", ".avi", ".mkv")):
+                    await msg.answer_video(f, caption=caption)
+                elif name.endswith((".mp3", ".aac", ".wav", ".ogg")):
+                    await msg.answer_audio(f, caption=caption)
+                else:
+                    await msg.answer_document(f, caption=caption)
+
+        except Exception as e:
+            print("Ошибка отправки подарка:", e)
+
+    # ------------------------------
+    # 4. Клавиатура после завершения
+    # ------------------------------
+    items = await alist_active_surveys()
+    show_menu = len(items) > 1
+
+    await msg.answer(
+        f"Вы закончили опрос «{survey.name}»!",
+        reply_markup=kb_in_survey(survey.slug, show_menu)
+    )
+
 
 # =======================================================
 # =====================  ХЕНДЛЕРЫ  ======================
