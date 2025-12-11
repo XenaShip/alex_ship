@@ -6,17 +6,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# 1. Сначала копируем зависимости
+# 1. Копируем requirements
 COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 2. Теперь копируем entrypoint.sh ОТДЕЛЬНО
-COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod 755 /app/entrypoint.sh
+# 2. Копируем entrypoint отдельно в /usr/local/bin — НЕ ЗАТРЁТСЯ!
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# 3. Теперь уже копируем весь проект — и entrypoint.sh не будет перезаписан!
-COPY . /app
+# 3. Копируем весь проект
+COPY . /app/
 
-RUN mkdir -p /app/staticfiles /app/media
-
-CMD ["/app/entrypoint.sh"]
+CMD ["entrypoint.sh"]
