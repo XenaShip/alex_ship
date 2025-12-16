@@ -27,7 +27,8 @@ class Question(models.Model):
     CHOICES = (
         ('yes_or_no', 'yes_or_no'),
         ('one_of_some', 'one_of_some'),
-        ('your_word', 'your_word')
+        ('your_word', 'your_word'),
+        ('on_of_many', 'on_of_many')
     )
     KINDS = (
         ('photo', 'photo'),
@@ -41,7 +42,7 @@ class Question(models.Model):
     type_q = models.CharField(max_length=100, choices=CHOICES, verbose_name='тип вопроса', **NULLABLE)
     wait_answer = models.BooleanField(verbose_name='ожидание ответа', **NULLABLE)
     file = models.FileField(upload_to='documents/', verbose_name="Файл документа", **NULLABLE)
-    kind_file = models.CharField(max_length=100, choices=KINDS, verbose_name='тип вопроса', **NULLABLE)
+    kind_file = models.CharField(max_length=100, choices=KINDS, verbose_name='тип файла', **NULLABLE)
 
     def __str__(self):
         return f'{self.survey}, {self.numb}, {self.que_text}'
